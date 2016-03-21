@@ -1,77 +1,72 @@
 #include <stdio.h>
-#include <stdlib.h>
-#include <errno.h>
 #include <unistd.h>
-#include <sys/types.h>
-#include <sys/ipc.h>
-#include <sys/sem.h>
-#include "semun.c"
+#include <stdlib.h>
+#include <string.h>
+#include <pthread.h>
+
+void freestr(char *s, int n){
+    int i;
+    for (i = 0; i<n; ++i){
+        s[i] = ' ';
+    }
+}
+
+void *thread_function(void *arg);
+char message[] = "poly";
+int rez=0;
+
 
 int main(int argc, char *argv[]) {
-  /* IPC */
-  pid_t pid[5];
-  key_t key;
-  int semid,shmid,status;
-  char *segptr;
-  union semun arg;
-  struct sembuf lock_res = {0, -1, 0};
-  struct sembuf rel_res = {0, 1, 0};
+    int res;
+    argv[1] = "poly";
+    pthread_t a_thread;
+    void *thread_result;
+    res = pthread_create(&a_thread, NULL, thread_function, (void *)message);
+    if (res != 0) {
+        perror("Thread creation failed");
+        exit(EXIT_FAILURE);
+    }
+    printf("Waiting for thread to finish...\n");
+    res = pthread_join(a_thread, &thread_result);
+    if (res != 0) {
+        perror("Thread join-failed");
+        exit(EXIT_FAILURE);
+    }
+    printf("Поток завершился и вернул %s\n", (char *)thread_result);
+    //printf("Message is now %s\n", message);
+    exit(EXIT_SUCCESS);
+}
 
-//    if(argc < 2){
-//        printf("Usage: bufdemo [dimensione]\n");
-//        exit(0);
-//      }
-    /* Семафоры */
-      key = ftok("/etc/fstab", getpid());
-    /* Создать набор из одного семафора */
-      semid = semget(key, 1, 0666 | IPC_CREAT);
-    /*Установить в семафоре № 0 (Контроллер ресурсов) значение "1"*/
-      arg.val = 1;
-      semctl(semid, 0, SETVAL, arg);
+void *thread_function(void *arg) {
+    printf("Поток запущен в качестве аргумента %s\n", (char *)arg);
+    int find = 0,j = 0;
+    char str[80];
 
-      /* Создаем особый ключ через вызов ftok() */
-      key = ftok(".", 'S');
-      /* Открываем разделяемый сегмент памяти - если нужно, создаем */
-      if((shmid = shmget(key, 100, IPC_CREAT|0660)) == -1) {
-         printf("Открыли существующий сегмент\n");
+    //sleep(3);
 
-      } else {
+    FILE *fp;
+    if((fp=fopen("in", "r"))==NULL) {
+      printf("Ошибка при открытии файла.\n");
+      exit(1);
+    }
 
-         printf("Создали сегмент памяти %d\n", shmid);
-      }
-      /* Привязывем (распределяем) разделяемый сегмент памяти в текущем
-         процессе */
+    freestr(str, 80);
+    while(fscanf(fp, "%s", str) != NULL) {
+        if(strcmp(str,message) == 0) {
+            find = 1;
+            break;
+        } else {
+           find = 0,j++;
+           freestr(str, 80);
+        }
+    }
 
-      int i;
-      for (i = 0; i < 5; i++){
-          printf("for\n");
-          pid[i] = fork();
-          if (pid[i] == 0){
-              //sleep(rand()%6);
-              printf("fork\n");
-              if((segptr = (char *)shmat(shmid, 0, 0)) == -1) {
-                 perror("shmat");
-                 //exit(1);
-              }
-              /* Попытаться заблокировать ресурс (семафор номер 0) */
-              if (semop(semid, &lock_res, 1) == -1){
-                perror("semop:lock_res");
-                printf("if\n");
+    if (find == 1){
+        /* Посылаем "string" через выход канала */
+        pthread_exit("Строка найдена");
+    } else {
+        pthread_exit("Строка не найдена!");
+    }
 
-              } else {
-                  printf("else\n");
-                  strcpy(segptr, "Wake up");
-                  printf("segptr: %s\n", segptr);
-              }
-          /* Разблокировать ресурс */
-            semop(semid, &rel_res, 1);
-          }
-
-      }
-      waitpid(-1, &status, 0);
-      printf("%d\n",WEXITSTATUS(status));
-      exit(status);
-
-    //semctl(semid, 0, IPC_RMID);
-    return 0;
+    //strcpy(message, "Bye!");
 }
